@@ -762,9 +762,7 @@ function drawCalibrationChart() {
 
 // ─── CALIBRATION TABLE (worst bins) ─────────────────────────
 function drawCalibrationTable() {
-    // Add a summary line
     const el = document.getElementById('calibrationTable');
-    // Find the most overconfident and underconfident bins
     const bins = [];
     for (let i = 0; i < 10; i++) {
         const bMarkets = calibrationData.filter(m => Math.min(Math.floor(m.predictedProb * 10), 9) === i);
@@ -773,15 +771,18 @@ function drawCalibrationTable() {
         const mid = (i + 0.5) / 10;
         bins.push({ i, mid, actual, count: bMarkets.length, gap: actual - mid });
     }
+    if (bins.length === 0) return;
     const over = [...bins].sort((a, b) => b.gap - a.gap)[0];
     const under = [...bins].sort((a, b) => a.gap - b.gap)[0];
+    const overGap = (over.gap * 100).toFixed(1);
+    const underGap = (under.gap * 100).toFixed(1);
 
     el.innerHTML = `
     <aside>
-    <strong>Overconfident:</strong> Markets priced at ${(over.mid*100).toFixed(0)}% actually resolved Yes ${(over.actual*100).toFixed(0)}% of the time
-    (${over.count} markets, gap of <strong>+</94}%, showing more Yes outcomes than predicted).<br>
-    <strong>Underconfident:</strong> Markets priced at ${(under.mid*100).toFixed(0)}% resolved Yes only ${(under.actual*100).toFixed(0)}% of the time
-    (${under.count} markets, gap of <strong>−94}%`).replace(/±/g,'').replace(/(\+|-)(\d+)/, '$1$2') + '%).
+    <strong>Most overconfident bin:</strong> Markets priced at ${(over.mid*100).toFixed(0)}% resolved Yes ${(over.actual*100).toFixed(0)}% of the time
+    (${over.count} markets, gap of <strong>+${overGap}%</strong> — more Yes outcomes than predicted).<br>
+    <strong>Most underconfident bin:</strong> Markets priced at ${(under.mid*100).toFixed(0)}% resolved Yes only ${(under.actual*100).toFixed(0)}% of the time
+    (${under.count} markets, gap of <strong>${underGap}%</strong> — fewer Yes outcomes than predicted).
     </aside>`;
 }
 

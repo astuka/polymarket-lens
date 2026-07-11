@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket Lens — Prediction Market Aggregator & Visualizer</title>
+    <meta name="description" content="Live prediction market data from Polymarket. Calibration analysis, spread tracking, and what the market got wrong.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%230066ff'/><text x='50' y='65' font-size='50' text-anchor='middle' fill='white'>◎</text></svg>">
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --bg-card: #131822;
+            --bg-elevated: #1a2030;
+            --border: #252b3d;
+            --text: #e8ecf1;
+            --text-dim: #7a8499;
+            --text-bright: #ffffff;
+            --accent: #0066ff;
+            --accent-bright: #338aff;
+            --green: #00d97e;
+            --red: #ff5c5c;
+            --yellow: #ffb84d;
+            --purple: #9c7aff;
+            --cyan: #00d4ff;
+            --radius: 10px;
+            --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            --mono: "SF Mono", "Fira Code", "Cascadia Code", Menlo, monospace;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        a { color: var(--accent-bright); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* HEADER */
+        .header {
+            background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg) 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 48px 24px 40px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--text-bright);
+            margin-bottom: 8px;
+        }
+        .header h1 .lens { color: var(--accent-bright); }
+        .header p {
+            color: var(--text-dim);
+            font-size: 1.05rem;
+            max-width: 600px;
+            margin: 0 auto 20px;
+        }
+        .header-links {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .header-links a {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            transition: all 0.2s;
+        }
+        .header-links a:hover {
+            color: var(--text-bright);
+            border-color: var(--accent-bright);
+            text-decoration: none;
+        }
+
+        /* CONTAINER */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 32px 24px 80px;
+        }
+
+        /* TABS */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 28px;
+            border-bottom: 2px solid var(--border);
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: var(--text-dim);
+            font-size: 0.95rem;
+            font-weight: 600;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .tab:hover { color: var(--text); }
+        .tab.active {
+            color: var(--text-bright);
+            border-bottom-color: var(--accent-bright);
+        }
+        .tab-badge {
+            font-size: 0.7rem;
+            background: var(--bg-elevated);
+            padding: 2px 7px;
+            border-radius: 999px;
+            margin-left: 6px;
+        }
+
+        /* PANEL */
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        /* SECTION TITLE */
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--text-bright);
+            margin-bottom: 4px;
+        }
+        .section-desc {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+
+        /* CONTROLS */
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text);
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-box:focus { border-color: var(--accent-bright); }
+        .filter-btn {
+            padding: 8px 14px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-btn:hover { color: var(--text); border-color: var(--accent-bright); }
+        .filter-btn.active {
+            color: var(--text-bright);
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* MARKET CARD */
+        .market-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 16px;
+        }
+        .market-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+            transition: border-color 0.2s;
+            cursor: pointer;
+        }
+        .market-card:hover { border-color: var(--accent-bright); }
+        .market-card .question {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-bright);
+            margin-bottom: 12px;
+            line-height: 1.35;
+        }
+        .market-card .meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+        }
+        .market-card .category {
+            padding: 2px 8px;
+            background: var(--bg-elevated);
+            border-radius: 999px;
+        }
+        .market-card .volume { font-family: var(--mono); }
+        .price-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .price-bar {
+            flex: 1;
+            height: 28px;
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            position: relative;
+            background: var(--bg-elevated);
+        }
+        .price-bar .yes-fill {
+            background: linear-gradient(90deg, var(--green), #00b86a);
+            transition: width 0.5s ease;
+        }
+        .price-bar .no-fill {
+            background: linear-gradient(90deg, #cc4444, var(--red));
+            transition: width 0.5s ease;
+        }
+        .price-bar .label {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: white;
+            padding: 0 6px;
+            white-space: nowrap;
+        }
+        .price-bar .label.left { left: 6px; }
+        .price-bar .label.right { right: 6px; }
+        .market-card .stats {
+            display: flex;
+            gap: 16px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+        .market-card .stats span strong {
+            color: var(--text);
+            font-family: var(--mono);
+        }
+        .market-card .arrow {
+            display: inline-block;
+            font-size: 0.75rem;
+        }
+        .arrow.up { color: var(--green); }
+        .arrow.down { color: var(--red); }
+        .arrow.flat { color: var(--text-dim); }
+
+        /* CALIBRATION CHART */
+        .calibration-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+        #calibrationChart {
+            width: 100%;
+            height: 420px;
+        }
+        .calibration-legend {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 12px;
+            font-size: 0.85rem;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-dim);
+        }
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+        .calibration-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .cal-stat {
+            background: var(--bg-elevated);
+            border-radius: 8px;
+            padding: 14px;
+            text-align: center;
+        }
+        .cal-stat .label {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+        .cal-stat .value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--text-bright);
+            font-family: var(--mono);
+        }
+        .cal-stat .value.good { color: var(--green); }
+        .cal-stat .value.bad { color: var(--red); }
+
+        /* WHAT THE MARKET GOT WRONG */
+        .wrong-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .wrong-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 18px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .wrong-card .surprise {
+            flex-shrink: 0;
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: 800;
+            font-family: var(--mono);
+        }
+        .wrong-card .surprise.high {
+            background: rgba(255, 92, 92, 0.12);
+            color: var(--red);
+        }
+        .wrong-card .surprise.medium {
+            background: rgba(255, 184, 77, 0.12);
+            color: var(--yellow);
+        }
+        .wrong-card .surprise.low {
+            background: rgba(0, 217, 126, 0.12);
+            color: var(--green);
+        }
+        .wrong-card .body { flex: 1; min-width: 0; }
+        .wrong-card .question {
+            font-weight: 600;
+            color: var(--text-bright);
+            font-size: 0.95rem;
+            margin-bottom: 6px;
+        }
+        .wrong-card .detail {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+        }
+        .wrong-card .detail strong { color: var(--text); }
+        .wrong-card .link {
+            font-size: 0.8rem;
+            margin-top: 6px;
+        }
+
+        /* SPREAD TABLE */
+        .spread-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .spread-table th {
+            text-align: left;
+            padding: 10px 14px;
+            color: var(--text-dim);
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+        .spread-table td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text);
+        }
+        .spread-table tr:hover td { background: var(--bg-card); }
+        .spread-table .question-cell {
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .spread-bar {
+            display: inline-block;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--accent);
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        .spread-table .mono { font-family: var(--mono); }
+
+        /* LOADING */
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-dim);
+        }
+        .spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent-bright);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ERROR */
+        .error-msg {
+            text-align: center;
+            padding: 40px;
+            color: var(--red);
+            font-size: 0.9rem;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .header h1 { font-size: 1.6rem; }
+            .market-grid { grid-template-columns: 1fr; }
+            .tabs { overflow-x: auto; flex-wrap: nowrap; }
+            .spread-table { font-size: 0.8rem; }
+            .spread-table .question-cell { max-width: 200px; }
+        }
+
+        /* TOOLTIP */
+        .tooltip {
+            position: absolute;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        /* FOOTER */
+        .footer {
+            text-align: center;
+            padding: 32px 24px;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+        .footer a { color: var(--text); }
+        .footer .heart { color: var(--red); }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Polymarket <span class="lens">Lens</span> ◎</h1>
+    <p>Live prediction market data — calibration analysis, spread tracking, and what the market got wrong. Powered by Polymarket's public API.</p>
+    <div class="header-links">
+        <a href="https://github.com/astuka/polymarket-lens" target="_blank">📦 GitHub Repo</a>
+        <a href="https://jacobrobinson.substack.com" target="_blank">✍️ Substack</a>
+        <a href="https://discord.gg/7H5g9mYQ" target="_blank">💬 Discord</a>
+        <a href="https://polymarket.com" target="_blank">🔗 Data Source</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="tabs">
+        <div class="tab active" data-tab="live">Live Markets</div>
+        <div class="tab" data-tab="calibration">Calibration</div>
+        <div class="tab" data-tab="wrong">What the Market Got Wrong</div>
+        <div class="tab" data-tab="spread">Spread Analysis</div>
+    </div>
+
+    <!-- LIVE MARKETS -->
+    <div class="panel active" id="panel-live">
+        <div class="section-title">Live Markets</div>
+        <div class="section-desc">Real-time prices from Polymarket's most liquid active markets. Click a card to view on Polymarket.</div>
+        <div class="controls">
+            <input type="text" class="search-box" id="marketSearch" placeholder="Search markets…">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="Politics">Politics</button>
+            <button class="filter-btn" data-filter="Crypto">Crypto</button>
+            <button class="filter-btn" data-filter="Sports">Sports</button>
+            <button class="filter-btn" data-filter="Economics">Economics</button>
+        </div>
+        <div id="marketGrid" class="market-grid">
+            <div class="loading"><div class="spinner"></div><br>Loading live markets…</div>
+        </div>
+    </div>
+
+    <!-- CALIBRATION -->
+    <div class="panel" id="panel-calibration">
+        <div class="section-title">Calibration: Did the Market Predict Correctly?</div>
+        <div class="section-desc">For resolved markets, we compare the market's final price (its probability estimate) to the actual outcome. A perfectly calibrated market would have points on the diagonal.</div>
+        <div class="calibration-container">
+            <canvas id="calibrationChart"></canvas>
+            <div class="calibration-legend">
+                <div class="legend-item"><div class="legend-dot" style="background: var(--accent-bright);"></div>Actual market performance</div>
+                <div class="legend-item"><div class="legend-dot" style="background: var(--green);"></div>Perfect calibration</div>
+            </div>
+            <div class="calibration-stats" id="calibrationStats">
+                <div class="loading"><div class="spinner"></div>Crunching calibration data…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WHAT THE MARKET GOT WRONG -->
+    <div class="panel" id="panel-wrong">
+        <div class="section-title">What the Market Got Wrong</div>
+        <div class="section-desc">Resolved markets where the crowd was most surprised — the biggest gaps between expected and actual outcomes. "Surprise" = |final price − resolution|.</div>
+        <div id="wrongList" class="wrong-list">
+            <div class="loading"><div class="spinner"></div>Fetching resolved markets…</div>
+        </div>
+    </div>
+
+    <!-- SPREAD ANALYSIS -->
+    <div class="panel" id="panel-spread">
+        <div class="section-title">Spread Analysis</div>
+        <div class="section-desc">Bid-ask spreads for active markets. Wide spreads signal uncertainty or low liquidity; tight spreads indicate high-confidence pricing.</div>
+        <div id="spreadTable">
+            <div class="loading"><div class="spinner"></div>Loading spread data…</div>
+        </div>
+    </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<div class="footer">
+    Built by <a href="https://github.com/astuka" target="_blank">Jacob Robinson</a> · Data from <a href="https://polymarket.com" target="_blank">Polymarket</a> · <a href="https://github.com/astuka/polymarket-lens" target="_blank">Source on GitHub</a><br>
+    MIT License · This is an independent project, not affiliated with Polymarket
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Polymarket Lens — Client-side prediction market visualizer
+// All data fetched live from Polymarket's public Gamma + CLOB APIs
+// No backend, no API keys, no tracking.
+// ═══════════════════════════════════════════════════════════════
+
+const GAMMA = "https://gamma-api.polymarket.com";
+const CLOB  = "https://clob.polymarket.com";
+
+// ─── State ──────────────────────────────────────────────────────
+let liveMarkets = [];
+let resolvedMarkets = [];
+let activeFilter = "all";
+
+// ─── Tab switching ─────────────────────────────────────────────
+document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+        // Lazy-load tabs that haven't been loaded yet
+        if (tab.dataset.tab === "calibration" && resolvedMarkets.length === 0) loadCalibration();
+        if (tab.dataset.tab === "wrong" && resolvedMarkets.length === 0) loadWrong();
+        if (tab.dataset.tab === "spread" && !window._spreadLoaded) loadSpread();
+    });
+});
+
+// ─── Helpers ────────────────────────────────────────────────────
+function fmtVolume(v) {
+    if (!v) return "—";
+    if (v >= 1e9) return "$" + (v/1e9).toFixed(1) + "B";
+    if (v >= 1e6) return "$" + (v/1e6).toFixed(1) + "M";
+    if (v >= 1e3) return "$" + (v/1e3).toFixed(0) + "K";
+    return "$" + v.toFixed(0);
+}
+
+function fmtPct(p) {
+    if (p === null || p === undefined) return "—";
+    return (p * 100).toFixed(1) + "%";
+}
+
+function arrow(change) {
+    if (change === null || change === undefined || isNaN(change)) return "";
+    if (change > 0.001) return `<span class="arrow up">▲ ${fmtPct(change)}</span>`;
+    if (change < -0.001) return `<span class="arrow down">▼ ${fmtPct(Math.abs(change))}</span>`;
+    return `<span class="arrow flat">—</span>`;
+}
+
+function parseJSON(str, fallback) {
+    try { return JSON.parse(str); } catch { return fallback; }
+}
+
+function categoryFromEvent(e) {
+    const tags = e.tags || [];
+    if (Array.isArray(tags) && tags.length > 0) {
+        // Gamma events can have tag objects
+        for (const t of tags) {
+            if (typeof t === "object" && t.label) return t.label;
+            if (typeof t === "string" && t.length < 20) return t;
+        }
+    }
+    // Fallback: guess from question
+    const q = (e.title || "").toLowerCase();
+    if (q.match(/bitcoin|crypto|ethereum|solana|token/)) return "Crypto";
+    if (q.match(/election|president|senate|congress|governor|trump|biden|harris/)) return "Politics";
+    if (q.match(/nba|nfl|super bowl|championship|football|basketball|baseball|soccer|champions/)) return "Sports";
+    if (q.match(/fed|rate|gdp|inflation|cpi|recession|economic/)) return "Economics";
+    return "Other";
+}
+
+// ─── LIVE MARKETS ──────────────────────────────────────────────
+async function loadLiveMarkets() {
+    try {
+        const res = await fetch(`${GAMMA}/events?active=true&closed=false&order=volume_24hr&ascending=false&limit=60`);
+        const events = await res.json();
+
+        liveMarkets = [];
+        for (const e of events) {
+            const cat = categoryFromEvent(e);
+            for (const m of (e.markets || [])) {
+                if (!m.active || m.closed) continue;
+                const prices = parseJSON(m.outcomePrices, ["0.5","0.5"]);
+                const yesPrice = parseFloat(prices[0]) || 0;
+                const vol = parseFloat(m.volumeNum || m.volume) || 0;
+                if (vol < 1000) continue; // skip dust
+
+                liveMarkets.push({
+                    question: m.question || e.title,
+                    yesPrice,
+                    volume: vol,
+                    category: cat,
+                    slug: m.slug || e.slug,
+                    spread: m.spread || null,
+                    oneDayChange: m.oneDayPriceChange ?? null,
+                    oneWeekChange: m.oneWeekPriceChange ?? null,
+                    volume24: e.volume24hr || 0,
+                    clobTokenIds: parseJSON(m.clobTokenIds, []),
+                    conditionId: m.conditionId,
+                });
+            }
+        }
+
+        renderLiveMarkets();
+    } catch (err) {
+        console.error(err);
+        document.getElementById("marketGrid").innerHTML = `<div class="error-msg">Failed to load markets: ${err.message}</div>`;
+    }
+}
+
+function renderLiveMarkets() {
+    const grid = document.getElementById("marketGrid");
+    const search = document.getElementById("marketSearch").value.toLowerCase();
+
+    let filtered = liveMarkets;
+    if (activeFilter !== "all") {
+        filtered = filtered.filter(m => m.category === activeFilter);
+    }
+    if (search) {
+        filtered = filtered.filter(m => m.question.toLowerCase().includes(search));
+    }
+
+    if (filtered.length === 0) {
+        grid.innerHTML = "<div class='loading'>No markets match your filters.</div>";
+        return;
+    }
+
+    grid.innerHTML = filtered.map(m => {
+        const yesPct = (m.yesPrice * 100).toFixed(1);
+        const noPct = ((1 - m.yesPrice) * 100).toFixed(1);
+        const yesW = Math.max(m.yesPrice * 100, 2);
+        const noW = 100 - yesW;
+        const url = `https://polymarket.com/event/${m.slug}`;
+        const cat = m.category;
+        return `
+            <div class="market-card" onclick="window.open('${url}', '_blank')">
+                <div class="question">${m.question}</div>
+                <div class="meta">
+                    <span class="category">${cat}</span>
+                    <span class="volume">${fmtVolume(m.volume)} vol</span>
+                </div>
+                <div class="price-row">
+                    <div class="price-bar">
+                        <div class="yes-fill" style="width:${yesW}%"></div>
+                        <div class="no-fill" style="width:${noW}%"></div>
+                        <div class="label left">Yes ${yesPct}%</div>
+                        <div class="label right">No ${noPct}%</div>
+                    </div>
+                </div>
+                <div class="stats">
+                    <span>24h: ${arrow(m.oneDayChange)}</span>
+                    <span>Vol 24h: <strong>${fmtVolume(m.volume24)}</strong></span>
+                    ${m.spread ? `<span>Spread: <strong>${(m.spread * 100).toFixed(2)}%</strong></span>` : ""}
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+document.getElementById("marketSearch").addEventListener("input", renderLiveMarkets);
+document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        activeFilter = btn.dataset.filter;
+        renderLiveMarkets();
+    });
+});
+
+// ─── CALIBRATION ────────────────────────────────────────────────
+async function loadCalibration() {
+    try {
+        // Fetch resolved markets (high volume for quality)
+        const res = await fetch(`${GAMMA}/events?closed=true&limit=500&order=volume&ascending=false`);
+        const events = await res.json();
+
+        const allResolved = [];
+        for (const e of events) {
+            for (const m of (e.markets || [])) {
+                if (!m.closed || m.umaResolutionStatus !== "resolved") continue;
+                const prices = parseJSON(m.outcomePrices, ["0","1"]);
+                const yesPrice = parseFloat(prices[0]);
+                const vol = parseFloat(m.volumeNum || m.volume) || 0;
+                if (isNaN(yesPrice) || vol < 5000) continue;
+
+                const resolved = (yesPrice >= 0.5) ? 1 : 0; // final price → outcome
+                // For calibration we need the pre-resolution price.
+                // Since outcomePrices show final (0/1), we use oneMonthPriceChange as proxy:
+                // lastTradePrice is the final trade. We want the price BEFORE resolution.
+                // The Gamma API gives us `oneMonthPriceChange` and `lastTradePrice`.
+                // lastTradePrice = final price. oneMonthPriceChange = lastTradePrice - price_one_month_ago.
+                // So pre-resolution price ≈ lastTradePrice - oneMonthPriceChange (for recently resolved).
+                // Better approach: use lastTradePrice if market resolved to 1 (price was heading to 1),
+                // and for resolved-to-0, pre-resolution = lastTradePrice (which is near 0 at close).
+                // For a proper calibration chart, we want the price well before resolution.
+                // Since Gamma doesn't expose price-at-time-of-creation directly,
+                // we'll use: finalPrice (which is 0 or 1) as actual outcome,
+                // and for the predicted probability, we'll use (1 - oneMonthPriceChange)
+                // if resolved to 0, or oneMonthPriceChange if resolved to 1.
+                // Actually, the best proxy: lastTradePrice before final resolution drift.
+                // Let's just use the volume-weighted average approach:
+                // predictedProb = lastTradePrice (the last trade before final settlement)
+                // But lastTradePrice IS the final price (0 or 1).
+                //
+                // PIVOT: Use price history API for a sample of markets for real calibration.
+                // For now, use a simpler heuristic: the oneYearPriceChange tells us
+                // where the price was a year ago. If market resolved to Yes (1),
+                // then price_one_year_ago = 1 - oneYearPriceChange.
+                // If resolved to No (0), then price_one_year_ago = 0 - oneYearPriceChange = -oneYearPriceChange.
+                //
+                // For the chart, we'll use "predicted probability" = price at some point before resolution.
+                // Since we can't easily get that for all 500 markets, let's use:
+                // predictedProb = lastTradePrice (before final 0/1 drift — many markets have lastTradePrice
+                // that's NOT exactly 0 or 1, especially for recently resolved ones).
+                //
+                // Actually, looking at the data: many resolved markets have lastTradePrice = 0 or 1.
+                // The ones that DON'T are recently closed. So we'll use:
+                // predictedProb = lastTradePrice if it's not 0 or 1,
+                // else use (resolvedTo1 ? max(0.01, 1 - |oneMonthPriceChange|) : max(0.01, |oneMonthPriceChange|))
+                //
+                // Hmm this is getting complex. Let's just use a clean approach:
+                // Fetch price history for a sample of 50 resolved markets and use their
+                // price 24h before resolution as the "predicted probability."
+
+                allResolved.push({
+                    question: m.question,
+                    yesPrice,
+                    resolved,
+                    volume: vol,
+                    lastTradePrice: m.lastTradePrice,
+                    oneMonthChange: m.oneMonthPriceChange,
+                    oneYearChange: m.oneYearPriceChange,
+                    conditionId: m.conditionId,
+                    slug: m.slug || e.slug,
+                    clobTokenIds: parseJSON(m.clobTokenIds, []),
+                });
+            }
+        }
+
+        // Sample 80 markets across volume tiers for price history
+        const sorted = allResolved.sort((a, b) => b.volume - a.volume);
+        const sample = sorted.slice(0, 200); // try more, we'll filter
+        const calibrationData = [];
+
+        // Fetch price history for up to 80 markets (rate-limited)
+        const batchSize = 10;
+        const maxMarkets = 80;
+        for (let i = 0; i < Math.min(sample.length, maxMarkets) && calibrationData.length < 60; i += batchSize) {
+            const batch = sample.slice(i, i + batchSize);
+            const promises = batch.map(async (m) => {
+                if (!m.clobTokenIds || m.clobTokenIds.length < 1) return null;
+                try {
+                    const tokenId = m.clobTokenIds[0]; // Yes token
+                    const res = await fetch(`${GAMMA}/prices-history?market=${m.conditionId}&interval=all&fidelity=100`);
+                    const data = await res.json();
+                    if (!data.history || data.history.length < 2) return null;
+
+                    // Get the price ~24h before resolution (second-to-last significant price point)
+                    // The last point is the final price (0 or 1). We want the one before.
+                    const hist = data.history;
+                    const last = hist[hist.length - 1];
+                    const secondLast = hist[hist.length - 2] || hist[hist.length - 1];
+
+                    // If last price is 0 or 1 (fully resolved), use second-to-last
+                    let predictedProb;
+                    if (last.p === "0" || last.p === "1" || parseFloat(last.p) < 0.01 || parseFloat(last.p) > 0.99) {
+                        predictedProb = parseFloat(secondLast.p);
+                    } else {
+                        predictedProb = parseFloat(last.p);
+                    }
+
+                    if (isNaN(predictedProb) || predictedProb < 0 || predictedProb > 1) return null;
+
+                    return {
+                        question: m.question,
+                        predictedProb,
+                        resolved: m.resolved,
+                        volume: m.volume,
+                        slug: m.slug,
+                    };
+                } catch { return null; }
+            });
+
+            const results = await Promise.all(promises);
+            for (const r of results) {
+                if (r) calibrationData.push(r);
+            }
+        }
+
+        drawCalibrationChart(calibrationData);
+        resolvedMarkets = calibrationData; // reuse for "got wrong" tab
+    } catch (err) {
+        console.error(err);
+        document.getElementById("calibrationStats").innerHTML = `<div class="error-msg">Failed to load calibration data: ${err.message}</div>`;
+    }
+}
+
+function drawCalibrationChart(data) {
+    if (data.length === 0) {
+        document.getElementById("calibrationStats").innerHTML = "<div class='error-msg'>No calibration data available.</div>";
+        return;
+    }
+
+    // Group into bins
+    const bins = [
+        { label: "0-10%",  min: 0.00, max: 0.10, markets: [] },
+        { label: "10-20%", min: 0.10, max: 0.20, markets: [] },
+        { label: "20-30%", min: 0.20, max: 0.30, markets: [] },
+        { label: "30-40%", min: 0.30, max: 0.40, markets: [] },
+        { label: "40-50%", min: 0.40, max: 0.50, markets: [] },
+        { label: "50-60%", min: 0.50, max: 0.60, markets: [] },
+        { label: "60-70%", min: 0.60, max: 0.70, markets: [] },
+        { label: "70-80%", min: 0.70, max: 0.80, markets: [] },
+        { label: "80-90%", min: 0.80, max: 0.90, markets: [] },
+        { label: "90-100%",min: 0.90, max: 1.01, markets: [] },
+    ];
+
+    for (const m of data) {
+        for (const b of bins) {
+            if (m.predictedProb >= b.min && m.predictedProb < b.max) {
+                b.markets.push(m);
+                break;
+            }
+        }
+    }
+
+    // Calculate actual outcome rate per bin
+    const points = bins.map(b => {
+        if (b.markets.length === 0) return null;
+        const actualRate = b.markets.filter(m => m.resolved === 1).length / b.markets.length;
+        const midpoint = (b.min + b.max) / 2;
+        return {
+            label: b.label,
+            midpoint,
+            actualRate,
+            count: b.markets.length,
+        };
+    }).filter(p => p !== null);
+
+    // Draw on canvas
+    const canvas = document.getElementById("calibrationChart");
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 420 * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width;
+    const H = 420;
+    const pad = { top: 30, right: 40, bottom: 50, left: 60 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    // Clear
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = "#0a0e17";
+    ctx.fillRect(pad.left, pad.top, plotW, plotH);
+
+    // Grid lines
+    ctx.strokeStyle = "#252b3d";
+    ctx.lineWidth = 1;
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#7a8499";
+    for (let i = 0; i <= 10; i++) {
+        const x = pad.left + (plotW * i / 10);
+        const y = pad.top + (plotH * (10 - i) / 10);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.top);
+        ctx.lineTo(x, pad.top + plotH);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + plotW, y);
+        ctx.stroke();
+
+        // Labels
+        ctx.textAlign = "center";
+        ctx.fillText(`${i*10}%`, x, pad.top + plotH + 18);
+        ctx.textAlign = "right";
+        ctx.fillText(`${i*10}%`, pad.left - 8, y + 4);
+    }
+
+    // Diagonal (perfect calibration)
+    ctx.strokeStyle = "#00d97e";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top + plotH);
+    ctx.lineTo(pad.left + plotW, pad.top);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Points + connecting line
+    ctx.strokeStyle = "#338aff";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    let started = false;
+    for (const p of points) {
+        const x = pad.left + plotW * p.midpoint;
+        const y = pad.top + plotH * (1 - p.actualRate);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Points
+    for (const p of points) {
+        const x = pad.left + plotW * p.midpoint;
+        const y = pad.top + plotH * (1 - p.actualRate);
+
+        // Glow
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(51, 138, 255, 0.15)";
+        ctx.fill();
+
+        // Dot
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "#338aff";
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Count label
+        ctx.fillStyle = "#7a8499";
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(`n=${p.count}`, x, y - 12);
+    }
+
+    // Axis labels
+    ctx.fillStyle = "#e8ecf1";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Predicted Probability (market price)", pad.left + plotW / 2, H - 8);
+    ctx.save();
+    ctx.translate(16, pad.top + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText("Actual Outcome Rate (% resolved Yes)", 0, 0);
+    ctx.restore();
+
+    // Brier score + stats
+    let brierSum = 0;
+    for (const m of data) {
+        brierSum += (m.predictedProb - m.resolved) ** 2;
+    }
+    const brier = brierSum / data.length;
+
+    let correctCount = 0;
+    for (const m of data) {
+        if ((m.predictedProb >= 0.5 && m.resolved === 1) || (m.predictedProb < 0.5 && m.resolved === 0)) correctCount++;
+    }
+    const accuracy = correctCount / data.length;
+
+    // Average surprise
+    const avgSurprise = data.reduce((sum, m) => sum + Math.abs(m.predictedProb - m.resolved), 0) / data.length;
+
+    document.getElementById("calibrationStats").innerHTML = `
+        <div class="cal-stat">
+            <div class="label">Markets Analyzed</div>
+            <div class="value">${data.length}</div>
+        </div>
+        <div class="cal-stat">
+            <div class="label">Brier Score</div>
+            <div class="value ${brier < 0.25 ? 'good' : 'bad'}">${brier.toFixed(4)}</div>
+        </div>
+        <div class="cal-stat">
+            <div class="label">Directional Accuracy</div>
+            <div class="value ${accuracy > 0.5 ? 'good' : 'bad'}">${(accuracy * 100).toFixed(1)}%</div>
+        </div>
+        <div class="cal-stat">
+            <div class="label">Avg Surprise</div>
+            <div class="value">${(avgSurprise * 100).toFixed(1)}%</div>
+        </div>
+    `;
+
+    // Store for "got wrong" tab
+    window._calibrationData = data;
+}
+
+// ─── WHAT THE MARKET GOT WRONG ─────────────────────────────────
+async function loadWrong() {
+    if (window._calibrationData && window._calibrationData.length > 0) {
+        renderWrong(window._calibrationData);
+        return;
+    }
+    // If calibration hasn't loaded yet, load it first
+    await loadCalibration();
+    if (window._calibrationData) {
+        renderWrong(window._calibrationData);
+    }
+}
+
+function renderWrong(data) {
+    const list = document.getElementById("wrongList");
+
+    if (!data || data.length === 0) {
+        list.innerHTML = "<div class='loading'>No data available.</div>";
+        return;
+    }
+
+    // Sort by surprise (predicted - actual)
+    const sorted = data.map(m => ({
+        ...m,
+        surprise: Math.abs(m.predictedProb - m.resolved),
+        predicted: m.predictedProb,
+        actual: m.resolved,
+    })).sort((a, b) => b.surprise - a.surprise);
+
+    const top = sorted.slice(0, 20);
+
+    list.innerHTML = top.map(m => {
+        const surprisePct = (m.surprise * 100).toFixed(1);
+        const cls = m.surprise > 0.5 ? "high" : m.surprise > 0.25 ? "medium" : "low";
+        const direction = m.actual === 1 ? "resolved YES" : "resolved NO";
+        const predPct = (m.predicted * 100).toFixed(1);
+        const url = `https://polymarket.com/event/${m.slug}`;
+
+        return `
+            <div class="wrong-card">
+                <div class="surprise ${cls}">${surprisePct}%</div>
+                <div class="body">
+                    <div class="question">${m.question}</div>
+                    <div class="detail">Market predicted: <strong>${predPct}% YES</strong> · Outcome: <strong>${direction}</strong></div>
+                    <div class="detail">Volume: <strong>${fmtVolume(m.volume)}</strong> · Surprise: <strong>${surprisePct}%</strong></div>
+                    <div class="link"><a href="${url}" target="_blank">View on Polymarket →</a></div>
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+// ─── SPREAD ANALYSIS ────────────────────────────────────────────
+async function loadSpread() {
+    window._spreadLoaded = true;
+    const container = document.getElementById("spreadTable");
+
+    try {
+        // Fetch CLOB spread data for top active markets
+        const res = await fetch(`${GAMMA}/markets?active=true&closed=false&order=volume&ascending=false&limit=50`);
+        const markets = await res.json();
+
+        const spreadData = [];
+        for (const m of markets) {
+            const clobTokenIds = parseJSON(m.clobTokenIds, []);
+            if (clobTokenIds.length < 1) continue;
+
+            const prices = parseJSON(m.outcomePrices, ["0.5","0.5"]);
+            const yesPrice = parseFloat(prices[0]) || 0;
+            const vol = parseFloat(m.volumeNum || m.volume) || 0;
+            const spread = m.spread || 0;
+
+            spreadData.push({
+                question: m.question,
+                yesPrice,
+                spread,
+                volume: vol,
+                lastTradePrice: m.lastTradePrice,
+                bestBid: m.bestBid,
+                bestAsk: m.bestAsk,
+                slug: m.slug,
+            });
+        }
+
+        // Sort by spread descending (widest first)
+        spreadData.sort((a, b) => b.spread - a.spread);
+
+        // Also show tightest spreads
+        const tightest = [...spreadData].sort((a, b) => a.spread - b.spread).slice(0, 5);
+        const widest = spreadData.slice(0, 15);
+
+        const maxSpread = Math.max(...spreadData.map(s => s.spread), 0.001);
+
+        container.innerHTML = `
+            <div style="margin-bottom: 28px;">
+                <h3 style="color: var(--text-bright); margin-bottom: 12px; font-size: 1.05rem;">📏 Widest Spreads (highest uncertainty / lowest liquidity)</h3>
+                <table class="spread-table">
+                    <thead>
+                        <tr>
+                            <th>Market</th>
+                            <th>Yes %</th>
+                            <th>Spread</th>
+                            <th>Volume</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${widest.map(s => `
+                            <tr>
+                                <td class="question-cell" title="${s.question}">${s.question}</td>
+                                <td class="mono">${(s.yesPrice * 100).toFixed(1)}%</td>
+                                <td>
+                                    <span class="spread-bar" style="width: ${(s.spread / maxSpread) * 80}px;"></span>
+                                    <span class="mono">${(s.spread * 100).toFixed(2)}%</span>
+                                </td>
+                                <td class="mono">${fmtVolume(s.volume)}</td>
+                                <td><a href="https://polymarket.com/event/${s.slug}" target="_blank">→</a></td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <h3 style="color: var(--text-bright); margin-bottom: 12px; font-size: 1.05rem;">🎯 Tightest Spreads (highest confidence pricing)</h3>
+                <table class="spread-table">
+                    <thead>
+                        <tr>
+                            <th>Market</th>
+                            <th>Yes %</th>
+                            <th>Spread</th>
+                            <th>Volume</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tightest.map(s => `
+                            <tr>
+                                <td class="question-cell" title="${s.question}">${s.question}</td>
+                                <td class="mono">${(s.yesPrice * 100).toFixed(1)}%</td>
+                                <td>
+                                    <span class="spread-bar" style="width: ${(s.spread / maxSpread) * 80}px; background: var(--green);"></span>
+                                    <span class="mono">${(s.spread * 100).toFixed(2)}%</span>
+                                </td>
+                                <td class="mono">${fmtVolume(s.volume)}</td>
+                                <td><a href="https://polymarket.com/event/${s.slug}" target="_blank">→</a></td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = `<div class="error-msg">Failed to load spread data: ${err.message}</div>`;
+    }
+}
+
+// ─── INIT ──────────────────────────────────────────────────────
+loadLiveMarkets();
+</script>
+</body>
+</html>

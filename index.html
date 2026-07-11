@@ -581,7 +581,7 @@ document.querySelectorAll(".tab").forEach(tab => {
         document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
         // Lazy-load tabs that haven't been loaded yet
         if (tab.dataset.tab === "calibration" && resolvedMarkets.length === 0) loadCalibration();
-        if (tab.dataset.tab === "wrong" && resolvedMarkets.length === 0) loadWrong();
+        if (tab.dataset.tab === "wrong" && !window._wrongLoaded) loadWrong();
         if (tab.dataset.tab === "spread" && !window._spreadLoaded) loadSpread();
     });
 });
@@ -982,6 +982,7 @@ function drawCalibrationChart(data) {
 
 // ─── WHAT THE MARKET GOT WRONG ─────────────────────────────────
 async function loadWrong() {
+    window._wrongLoaded = true;
     if (window._calibrationData && window._calibrationData.length > 0) {
         renderWrong(window._calibrationData);
         return;

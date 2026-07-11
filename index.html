@@ -389,6 +389,8 @@ All data is fetched live from Polymarket's public API.
         </div>
     </div>
 
+    <div id="calibrationInterpretation"></div>
+
     <aside>
     <strong>Brier score</strong> measures the mean squared error between predicted probabilities
     and outcomes. 0.0 = perfect, 0.25 = a coin flip, 0.5 = maximally wrong. Lower is better.
@@ -585,6 +587,7 @@ async function loadCalibration() {
 
         document.getElementById("totalMarketsInline").textContent = calibrationData.length.toLocaleString();
         drawCalibrationChart();
+        drawCalibrationInterpretation();
         drawCalibrationTable();
         drawWrongTable();
         drawPatterns();
@@ -760,6 +763,78 @@ function drawCalibrationChart() {
     }).join('');
 }
 
+// ─── CALIBRATION INTERPRETATION (dynamic prose) ─────────────
+function drawCalibrationInterpretation() {
+    if (calibrationData.length === 0) return;
+
+    const el = document.getElementById('calibrationInterpretation');
+
+    // Compute stats
+    let brierSum = 0;
+    for (const m of calibrationData) brierSum += (m.predictedProb - m.resolved) ** 2;
+    const brier = brierSum / calibrationData.length;
+
+    let correct = 0;
+    for (const m of calibrationData) {
+        if ((m.predictedProb >= 0.5 && m.resolved === 1) || (m.predictedProb < 0.5 && m.resolved === 0)) correct++;
+    }
+    const accuracy = correct / calibrationData.length;
+
+    // Compute bin-level gaps to find where the market is most miscalibrated
+    const bins = [];
+    for (let i = 0; i < 10; i++) {
+        const bMarkets = calibrationData.filter(m => Math.min(Math.floor(m.predictedProb * 10), 9) === i);
+        if (bMarkets.length === 0) continue;
+        const actual = bMarkets.filter(m => m.resolved === 1).length / bMarkets.length;
+        const mid = (i + 0.5) / 10;
+        bins.push({ i, mid, actual, count: bMarkets.length, gap: actual - mid });
+    }
+
+    // Find worst bins
+    const overBins = bins.filter(b => b.gap > 0.05).sort((a, b) => b.gap - a.gap);
+    const underBins = bins.filter(b => b.gap < -0.05).sort((a, b) => a.gap - b.gap);
+
+    // ── Brier score interpretation ───────────────────────────
+    let brierDesc;
+    if (brier < 0.05) brierDesc = "excellent — the market's probability estimates are highly accurate";
+    else if (brier < 0.10) brierDesc = "good — the market is well-calibrated with mild systematic biases";
+    else if (brier < 0.20) brierDesc = "moderate — the market has meaningful miscalibration in certain ranges";
+    else if (brier < 0.25) brierDesc = "weak — barely better than random guessing overall";
+    else brierDesc = "poor — no better than random guessing in aggregate";
+
+    // ── Accuracy interpretation ──────────────────────────────
+    let accDesc;
+    if (accuracy > 0.90) accDesc = "the market correctly called nearly all outcomes";
+    else if (accuracy > 0.75) accDesc = "the market called most outcomes correctly";
+    else if (accuracy > 0.60) accDesc = "the market was right more often than not, but with notable failures";
+    else accDesc = "the market's directional accuracy is marginal";
+
+    // ── Miscalibration pattern ───────────────────────────────
+    let miscalDesc;
+    if (overBins.length === 0 && underBins.length === 0) {
+        miscalDesc = "No bin shows a significant gap (>5%) between predicted and actual rates — the market is well-calibrated across all probability ranges.";
+    } else {
+        const parts = [];
+        if (overBins.length > 0) {
+            const top = overBins[0];
+            const intensity = top.gap > 0.25 ? "severely" : top.gap > 0.15 ? "substantially" : top.gap > 0.10 ? "notably" : "slightly";
+            // Does the market overestimate in the high-probability range or low?
+            const range = top.mid >= 0.5 ? "high-probability" : "low-probability";
+            parts.push(`the market was <strong>${intensity} overconfident</strong> in the ${(top.mid*100).toFixed(0)}% bin (${range} range): events predicted at ${(top.mid*100).toFixed(0)}% actually occurred ${(top.actual*100).toFixed(0)}% of the time (${top.count} markets, gap of <strong>+${(top.gap*100).toFixed(1)}%</strong>)`);
+        }
+        if (underBins.length > 0) {
+            const top = underBins[0];
+            const intensity = Math.abs(top.gap) > 0.25 ? "severely" : Math.abs(top.gap) > 0.15 ? "substantially" : Math.abs(top.gap) > 0.10 ? "notably" : "slightly";
+            const range = top.mid >= 0.5 ? "high-probability" : "low-probability";
+            const direction = top.mid >= 0.5 ? "overestimated" : "underestimated";
+            parts.push(`the market was <strong>${intensity} underconfident</strong> in the ${(top.mid*100).toFixed(0)}% bin (${range} range): events predicted at ${(top.mid*100).toFixed(0)}% occurred only ${(top.actual*100).toFixed(0)}% of the time (${top.count} markets, gap of <strong>${(top.gap*100).toFixed(1)}%</strong>)`);
+        }
+        miscalDesc = parts.join("; ") + ".";
+    }
+
+    el.innerHTML = `<p>Across <strong>${calibrationData.length.toLocaleString()}</strong> resolved markets, the market achieves a Brier score of <strong>${brier.toFixed(4)}</strong> (${brierDesc}) and a directional accuracy of <strong>${(accuracy*100).toFixed(1)}%</strong> (${accDesc}). ${miscalDesc}</p>`;
+}
+
 // ─── CALIBRATION TABLE (worst bins) ─────────────────────────
 function drawCalibrationTable() {
     const el = document.getElementById('calibrationTable');
@@ -829,9 +904,14 @@ function drawWrongTable() {
     </table>`;
 }
 
-// ─── PATTERN ANALYSIS ───────────────────────────────────────
+// ─── PATTERN ANALYSIS (dynamic prose) ────────────────────────
 function drawPatterns() {
     const el = document.getElementById('wrongPatterns');
+    if (calibrationData.length === 0) {
+        el.innerHTML = '<span class="loading">No data available.</span>';
+        return;
+    }
+
     const sorted = calibrationData.map(m => ({
         ...m,
         surprise: Math.abs(m.predictedProb - m.resolved),
@@ -850,16 +930,91 @@ function drawPatterns() {
         m.predictedProb < 0.3 && m.resolved === 1
     );
 
+    // ── Direction of surprise bias ───────────────────────────
+    // yesUpset = markets where Yes happened but was priced low (surprise Yes)
+    // noUpset = markets where Yes was priced high but didn't happen (surprise No)
+    const total = yesUpset + noUpset;
+    let surpriseDir;
+    if (total === 0) {
+        surpriseDir = "No markets had surprise >30%, leaving insufficient data for pattern analysis.";
+    } else {
+        const yesRatio = yesUpset / total;
+        let magnitude, direction;
+        if (yesRatio > 0.75) {
+            magnitude = "overwhelmingly";
+        } else if (yesRatio > 0.60) {
+            magnitude = "substantially";
+        } else if (yesRatio > 0.55) {
+            magnitude = "slightly";
+        } else if (yesRatio >= 0.45 && yesRatio <= 0.55) {
+            magnitude = "evenly";
+        } else if (yesRatio >= 0.40) {
+            magnitude = "slightly";
+        } else if (yesRatio >= 0.25) {
+            magnitude = "substantially";
+        } else {
+            magnitude = "overwhelmingly";
+        }
+
+        if (yesRatio > 0.55) {
+            direction = "surprised by things <em>happening</em> (unexpected Yes outcomes) rather than not happening";
+        } else if (yesRatio < 0.45) {
+            direction = "surprised by things <em>not happening</em> (unexpected No outcomes) rather than happening";
+        } else {
+            direction = "split between unexpected Yes and unexpected No outcomes";
+        }
+        surpriseDir = `The market is ${magnitude} more often ${direction}.`;
+    }
+
+    // ── High-confidence miss interpretation ──────────────────
+    let hcDesc;
+    if (highConfMisses.length === 0) {
+        hcDesc = "No markets priced above 70% resolved No — the market's high-confidence calls were all correct.";
+    } else if (highConfMisses.length <= 2) {
+        hcDesc = `Only <strong>${highConfMisses.length}</strong> market(s) priced above 70% resolved No — high-confidence calls are rarely wrong.`;
+    } else if (highConfMisses.length <= 10) {
+        hcDesc = `<strong>${highConfMisses.length}</strong> markets priced above 70% resolved No — the market occasionally fails on confident predictions.`;
+    } else {
+        hcDesc = `<strong>${highConfMisses.length}</strong> markets priced above 70% resolved No — the market has a notable blind spot in its high-confidence calls.`;
+    }
+
+    // ── Low-confidence hit interpretation ─────────────────────
+    let lcDesc;
+    if (lowConfHits.length === 0) {
+        lcDesc = "No markets priced below 30% resolved Yes — long shots rarely pay off.";
+    } else if (lowConfHits.length <= 5) {
+        lcDesc = `Only <strong>${lowConfHits.length}</strong> market(s) priced below 30% resolved Yes — the market is good at identifying true long shots.`;
+    } else if (lowConfHits.length <= 15) {
+        lcDesc = `<strong>${lowConfHits.length}</strong> markets priced below 30% resolved Yes — some long shots connect, suggesting the market underprices tail events.`;
+    } else {
+        lcDesc = `<strong>${lowConfHits.length}</strong> markets priced below 30% resolved Yes — a substantial number of long shots hit, indicating the market systematically underprices low-probability outcomes.`;
+    }
+
+    // ── Overall pattern synthesis ────────────────────────────
+    let synthesis;
+    if (total === 0) {
+        synthesis = "";
+    } else if (lowConfHits.length > 10 && yesUpset > noUpset) {
+        synthesis = " This is consistent with base-rate neglect: the market underestimates the frequency of rare events, and those events happen more than expected.";
+    } else if (highConfMisses.length > 10 && noUpset > yesUpset) {
+        synthesis = " This is consistent with overconfidence in the high-probability range: the market overprices likely outcomes, which then fail to materialize at the expected rate.";
+    } else if (lowConfHits.length > 5 && highConfMisses.length <= 2) {
+        synthesis = " The miscalibration is primarily in the low-probability tail — the market is better at calling likely events than pricing long shots.";
+    } else if (highConfMisses.length > 5 && lowConfHits.length <= 2) {
+        synthesis = " The miscalibration is primarily in the high-probability range — the market is good at identifying long shots but occasionally overconfident on likely outcomes.";
+    } else {
+        synthesis = " The market shows no strong directional bias in its errors — miscalibration is distributed across probability ranges rather than concentrated in one tail.";
+    }
+
     el.innerHTML = `
     Of the <strong>${big.length}</strong> markets with surprise >30%:
     <strong>${yesUpset}</strong> were unexpected Yes outcomes and
     <strong>${noUpset}</strong> were unexpected No outcomes.
     <em>High-confidence misses</em> (predicted >70% Yes, resolved No):
-    <strong>${highConfMisses.length}</strong>.
+    <strong>${highConfMisses.length}</strong> — ${hcDesc}
     <em>Low-confidence hits</em> (predicted <30% Yes, resolved Yes):
-    <strong>${lowConfHits.length}</strong>.
-    The market is slightly more often surprised by things <em>not happening</em> than happening —
-    consistent with base-rate neglect in the low-probability tail.
+    <strong>${lowConfHits.length}</strong> — ${lcDesc}
+    ${surpriseDir}${synthesis}
     `;
 }
 

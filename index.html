@@ -730,125 +730,63 @@ document.querySelectorAll(".filter-btn").forEach(btn => {
 // ─── CALIBRATION ────────────────────────────────────────────────
 async function loadCalibration() {
     try {
-        // Fetch resolved markets (high volume for quality)
+        // Fetch resolved markets sorted by volume (highest first for quality)
         const res = await fetch(`${GAMMA}/events?closed=true&limit=500&order=volume&ascending=false`);
         const events = await res.json();
 
-        const allResolved = [];
+        const calibrationData = [];
         for (const e of events) {
             for (const m of (e.markets || [])) {
                 if (!m.closed || m.umaResolutionStatus !== "resolved") continue;
+
                 const prices = parseJSON(m.outcomePrices, ["0","1"]);
-                const yesPrice = parseFloat(prices[0]);
+                const yesFinal = parseFloat(prices[0]);
                 const vol = parseFloat(m.volumeNum || m.volume) || 0;
-                if (isNaN(yesPrice) || vol < 5000) continue;
+                if (isNaN(yesFinal) || vol < 5000) continue;
 
-                const resolved = (yesPrice >= 0.5) ? 1 : 0; // final price → outcome
-                // For calibration we need the pre-resolution price.
-                // Since outcomePrices show final (0/1), we use oneMonthPriceChange as proxy:
-                // lastTradePrice is the final trade. We want the price BEFORE resolution.
-                // The Gamma API gives us `oneMonthPriceChange` and `lastTradePrice`.
-                // lastTradePrice = final price. oneMonthPriceChange = lastTradePrice - price_one_month_ago.
-                // So pre-resolution price ≈ lastTradePrice - oneMonthPriceChange (for recently resolved).
-                // Better approach: use lastTradePrice if market resolved to 1 (price was heading to 1),
-                // and for resolved-to-0, pre-resolution = lastTradePrice (which is near 0 at close).
-                // For a proper calibration chart, we want the price well before resolution.
-                // Since Gamma doesn't expose price-at-time-of-creation directly,
-                // we'll use: finalPrice (which is 0 or 1) as actual outcome,
-                // and for the predicted probability, we'll use (1 - oneMonthPriceChange)
-                // if resolved to 0, or oneMonthPriceChange if resolved to 1.
-                // Actually, the best proxy: lastTradePrice before final resolution drift.
-                // Let's just use the volume-weighted average approach:
-                // predictedProb = lastTradePrice (the last trade before final settlement)
-                // But lastTradePrice IS the final price (0 or 1).
-                //
-                // PIVOT: Use price history API for a sample of markets for real calibration.
-                // For now, use a simpler heuristic: the oneYearPriceChange tells us
-                // where the price was a year ago. If market resolved to Yes (1),
-                // then price_one_year_ago = 1 - oneYearPriceChange.
-                // If resolved to No (0), then price_one_year_ago = 0 - oneYearPriceChange = -oneYearPriceChange.
-                //
-                // For the chart, we'll use "predicted probability" = price at some point before resolution.
-                // Since we can't easily get that for all 500 markets, let's use:
-                // predictedProb = lastTradePrice (before final 0/1 drift — many markets have lastTradePrice
-                // that's NOT exactly 0 or 1, especially for recently resolved ones).
-                //
-                // Actually, looking at the data: many resolved markets have lastTradePrice = 0 or 1.
-                // The ones that DON'T are recently closed. So we'll use:
-                // predictedProb = lastTradePrice if it's not 0 or 1,
-                // else use (resolvedTo1 ? max(0.01, 1 - |oneMonthPriceChange|) : max(0.01, |oneMonthPriceChange|))
-                //
-                // Hmm this is getting complex. Let's just use a clean approach:
-                // Fetch price history for a sample of 50 resolved markets and use their
-                // price 24h before resolution as the "predicted probability."
+                // Determine actual outcome: outcomePrices ["1","0"] = Yes won, ["0","1"] = No won
+                const resolved = (yesFinal >= 0.5) ? 1 : 0;
 
-                allResolved.push({
+                // Reconstruct pre-resolution probability using oneMonthPriceChange.
+                // oneMonthPriceChange = lastTradePrice - priceOneMonthAgo
+                // So: priceOneMonthAgo = lastTradePrice - oneMonthPriceChange
+                // For resolved markets, lastTradePrice ≈ final price (0 or 1).
+                // This gives us the market's probability ~1 month before resolution.
+                const finalPrice = resolved ? 1.0 : 0.0;
+                const oneMonthChange = m.oneMonthPriceChange || 0;
+                let predictedProb = finalPrice - oneMonthChange;
+
+                // Clamp to [0.01, 0.99] — exclude markets where the proxy is invalid
+                predictedProb = Math.max(0.01, Math.min(0.99, predictedProb));
+
+                // Skip markets with no meaningful price change (stale/saturated markets)
+                if (Math.abs(oneMonthChange) < 0.001) {
+                    // For these, the price was already at its final value a month ago.
+                    // Use oneYearPriceChange as a fallback for longer-term markets.
+                    const oneYearChange = m.oneYearPriceChange || 0;
+                    if (Math.abs(oneYearChange) > 0.001) {
+                        predictedProb = finalPrice - oneYearChange;
+                        predictedProb = Math.max(0.01, Math.min(0.99, predictedProb));
+                    } else {
+                        // Both changes are ~0: market was fully priced well in advance.
+                        // Use the final price as the prediction (it was always at this level).
+                        predictedProb = finalPrice;
+                        continue; // skip — these add no calibration signal
+                    }
+                }
+
+                calibrationData.push({
                     question: m.question,
-                    yesPrice,
+                    predictedProb,
                     resolved,
                     volume: vol,
-                    lastTradePrice: m.lastTradePrice,
-                    oneMonthChange: m.oneMonthPriceChange,
-                    oneYearChange: m.oneYearPriceChange,
-                    conditionId: m.conditionId,
                     slug: m.slug || e.slug,
-                    clobTokenIds: parseJSON(m.clobTokenIds, []),
                 });
             }
         }
 
-        // Sample 80 markets across volume tiers for price history
-        const sorted = allResolved.sort((a, b) => b.volume - a.volume);
-        const sample = sorted.slice(0, 200); // try more, we'll filter
-        const calibrationData = [];
-
-        // Fetch price history for up to 80 markets (rate-limited)
-        const batchSize = 10;
-        const maxMarkets = 80;
-        for (let i = 0; i < Math.min(sample.length, maxMarkets) && calibrationData.length < 60; i += batchSize) {
-            const batch = sample.slice(i, i + batchSize);
-            const promises = batch.map(async (m) => {
-                if (!m.clobTokenIds || m.clobTokenIds.length < 1) return null;
-                try {
-                    const tokenId = m.clobTokenIds[0]; // Yes token
-                    const res = await fetch(`${GAMMA}/prices-history?market=${m.conditionId}&interval=all&fidelity=100`);
-                    const data = await res.json();
-                    if (!data.history || data.history.length < 2) return null;
-
-                    // Get the price ~24h before resolution (second-to-last significant price point)
-                    // The last point is the final price (0 or 1). We want the one before.
-                    const hist = data.history;
-                    const last = hist[hist.length - 1];
-                    const secondLast = hist[hist.length - 2] || hist[hist.length - 1];
-
-                    // If last price is 0 or 1 (fully resolved), use second-to-last
-                    let predictedProb;
-                    if (last.p === "0" || last.p === "1" || parseFloat(last.p) < 0.01 || parseFloat(last.p) > 0.99) {
-                        predictedProb = parseFloat(secondLast.p);
-                    } else {
-                        predictedProb = parseFloat(last.p);
-                    }
-
-                    if (isNaN(predictedProb) || predictedProb < 0 || predictedProb > 1) return null;
-
-                    return {
-                        question: m.question,
-                        predictedProb,
-                        resolved: m.resolved,
-                        volume: m.volume,
-                        slug: m.slug,
-                    };
-                } catch { return null; }
-            });
-
-            const results = await Promise.all(promises);
-            for (const r of results) {
-                if (r) calibrationData.push(r);
-            }
-        }
-
         drawCalibrationChart(calibrationData);
-        resolvedMarkets = calibrationData; // reuse for "got wrong" tab
+        resolvedMarkets = calibrationData;
     } catch (err) {
         console.error(err);
         document.getElementById("calibrationStats").innerHTML = `<div class="error-msg">Failed to load calibration data: ${err.message}</div>`;

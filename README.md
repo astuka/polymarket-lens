@@ -1,27 +1,31 @@
 # ◎ Polymarket Lens
 
-**A prediction market aggregator & visualizer — live data from Polymarket with calibration analysis, spread tracking, and "what the market got wrong" insights.**
+**Are prediction markets accurate? Where are the mispricing opportunities?**
 
-🔗 **Live demo:** [https://astuka.github.io/polymarket-lens/](https://astuka.github.io/polymarket-lens/)
+🔗 **Live:** [https://astuka.github.io/polymarket-lens/](https://astuka.github.io/polymarket-lens/)
 
-## What It Does
+A single-page analytical dashboard that pulls live data from [Polymarket's](https://polymarket.com) public APIs and answers two questions:
 
-Polymarket Lens pulls live data from [Polymarket's](https://polymarket.com) public APIs (no API key, no backend, no tracking) and visualizes it through four lenses:
+1. **How well-calibrated are crowd-sourced prediction markets?** — Do events priced at 30% actually happen 30% of the time?
+2. **Where do mispricing opportunities live?** — Which resolved markets were most wrong, and which active markets have the widest spreads?
 
-### 1. 📊 Live Markets
-Real-time prices from Polymarket's most liquid active markets. Searchable, filterable by category (Politics, Crypto, Sports, Economics). Each card shows Yes/No probabilities, 24h price change, volume, and spread.
+## Design Philosophy
 
-### 2. 🎯 Calibration
-Fetches resolved markets and pulls their price history to answer: **did the market's probability actually predict the outcome?** A perfectly calibrated market would have all points on the diagonal line. We compute:
-- **Brier Score** — the mean squared error between predicted probabilities and actual outcomes (lower is better; 0.25 = random guessing)
-- **Directional Accuracy** — how often the market's >50% call was correct
-- **Average Surprise** — mean gap between predicted probability and actual outcome
+The UI follows the academic minimalist tradition of [LessWrong](https://lesswrong.com) and [gwern.net](https://gwern.net): serif typography, monochrome palette, dense prose, collapsible detail sections, and no gratuitous visuals. The content is the interface.
 
-### 3. 📰 What the Market Got Wrong
-The markets where the crowd was most surprised — the biggest gaps between expected and actual outcomes. Sorted by "surprise" = |predicted probability − resolution|. These are the stories of the market being wrong, with links to each market.
+## Features
 
-### 4. 📏 Spread Analysis
-Bid-ask spreads for active markets. Wide spreads signal uncertainty or low liquidity; tight spreads indicate high-confidence pricing. Shows both the widest (most uncertain) and tightest (most confident) markets.
+### §1 Calibration
+Fetches all resolved markets (≥$5K volume), reconstructs pre-resolution probabilities using the `oneMonthPriceChange` field, and plots them on a calibration chart with Brier score, directional accuracy, and mean surprise. Collapsible per-bin breakdown shows exactly where the market over- and under-confident.
+
+### §2 Where the Market Was Wrong
+Table of the 25 resolved markets with the largest gap between predicted probability and actual outcome, plus a pattern analysis (high-confidence misses vs. low-confidence hits, base-rate neglect in the tails).
+
+### §3 Active Mispricing Opportunities
+Live bid-ask spreads for active markets — widest (disagreement = opportunity) and tightest (consensus = priced in).
+
+### §4 Methodology
+Full transparency on data sources, calibration method, Brier score formula, and limitations.
 
 ## Architecture
 
@@ -30,41 +34,19 @@ index.html     ← everything (HTML + CSS + JS in one file)
 ```
 
 - **No backend.** All API calls happen client-side from the browser.
-- **No dependencies.** No npm, no build step, no frameworks. Just vanilla HTML/CSS/JS.
-- **No API keys.** Polymarket's Gamma API is fully public with permissive CORS (`access-control-allow-origin: *`).
+- **No dependencies.** No npm, no build step, no frameworks. Vanilla HTML/CSS/JS.
+- **No API keys.** Polymarket's Gamma API is fully public with permissive CORS.
 - **No tracking.** No analytics, no cookies, no third-party scripts.
-
-### Data Sources
-
-| API | Base URL | Used For |
-|-----|----------|----------|
-| Gamma API | `gamma-api.polymarket.com` | Market discovery, events, metadata |
-| CLOB API | `clob.polymarket.com` | Price history, orderbook spreads |
-
-All endpoints are public REST (GET), return JSON, and require no authentication.
+- **Dark mode.** Respects `prefers-color-scheme`.
 
 ## Run Locally
 
 ```bash
 git clone https://github.com/astuka/polymarket-lens.git
 cd polymarket-lens
-# Just open index.html in your browser, or serve it:
 python3 -m http.server 8000
 # Visit http://localhost:8000
 ```
-
-That's it. No build step, no dependencies to install.
-
-## Deployment
-
-The site is deployed via [GitHub Pages](https://pages.github.com/) from the `main` branch. Any push to `main` automatically updates the live site.
-
-## Tech Stack
-
-- Vanilla HTML/CSS/JavaScript (zero dependencies)
-- Canvas API for the calibration chart
-- Polymarket public APIs for all data
-- GitHub Pages for hosting
 
 ## License
 
@@ -73,10 +55,10 @@ MIT — see [LICENSE](LICENSE).
 ## Links
 
 - 📦 [Source on GitHub](https://github.com/astuka/polymarket-lens)
-- ✍️ [Author's Substack](https://jacobrobinson.substack.com)
-- 💬 [Discord](https://discord.gg/7H5g9mYQ)
+- ✍️ [Substack](https://astukari.substack.com)
+- 💬 [Discord](https://discord.gg/xh6meZFhH7)
 - 🔗 [Data Source: Polymarket](https://polymarket.com)
 
 ---
 
-*This is an independent project and is not affiliated with Polymarket.*
+*Independent project, not affiliated with Polymarket.*
